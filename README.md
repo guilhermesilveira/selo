@@ -246,6 +246,37 @@ tests/
 
 ---
 
+## Releasing
+
+Manual SemVer release flow. While we're pre-1.0, `MINOR` bumps may introduce breaking changes (per the SemVer 0.x carve-out); track them in `CHANGELOG.md`.
+
+```sh
+# 1. Move the [Unreleased] block in CHANGELOG.md under a new
+#    `## [<version>] — YYYY-MM-DD` heading.
+# 2. Bump the version + commit + tag in one shot:
+npm version patch     # 0.0.1 → 0.0.2 (fix-level)
+# or  npm version minor   # 0.0.1 → 0.1.0 (feature, possible breaking pre-1.0)
+
+# 3. Push the commit and the tag together:
+git push --follow-tags
+
+# 4. Publish (one-time `npm login` first; scoped packages need --access public):
+npm publish --access public
+```
+
+The `prepublishOnly` script enforces `npm run build && npm test && npm run lint` before any publish, so a broken state can't ship.
+
+### Engine releases first
+
+`selo` is the upstream of the rule contract. When you change anything in `src/contract/index.ts`, in the verdict algorithm, or in the CLI's input/output shape:
+
+1. Release the engine bump from this repo first.
+2. In each rule pack ([selo-solid](https://github.com/guilhermesilveira/selo-solid), [selo-eslint-raiz](https://github.com/guilhermesilveira/selo-eslint-raiz)), update the `peerDependencies."@guilhermesilveira/selo"` range to require the new version, run the test suite against it, and release the pack.
+
+This ordering means a pack on npm always works against at least one published engine version.
+
+---
+
 ## Determinism contract
 
 The verdict of `selo check` is a pure function of (a) the source code currently on disk and (b) the committed `selo.baseline.json` and `selo.config.*`. No clock, no git history, no environment variables, no random seeds.

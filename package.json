@@ -24,6 +24,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/cli/selo.js",
     "prepare": "npm run build",
+    "prepublishOnly": "npm run build && npm test && npm run lint",
     "test": "vitest run",
     "lint": "eslint src tests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
