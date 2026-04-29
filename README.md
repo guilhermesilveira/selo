@@ -10,7 +10,20 @@ This README is **agent-first**. Read top to bottom.
 
 **Continuous improvement, never regression.** You set a quality goal you don't yet meet — say, "no function over 80 lines" — and start moving toward it without breaking the build today. selo measures your codebase as it is and seeds a baseline. From then on each commit either holds the line, improves it (the baseline auto-tightens to lock the gain in), or makes things worse — and only the third case fails. When you do force a regression, the rule responds by tightening the active threshold one step closer to the goal. The migration is monotonic: the codebase can never get further from the goal than its committed baseline, and the build verdict is a pure function of code + baseline files — no clock, no git history, no surprise reruns.
 
-**A small linter, not yet another ESLint plugin.** selo is its own linter. Rules implement a contract that returns per-unit measurements directly — `{value, file, startLine, name, data}` — so the engine never has to reconstruct numeric values from rendered messages. That keeps the ratchet deterministic, the histogram universal, and the seal-message rendering owned by the engine. Rules ship as **packs**: install [`selo-solid`](https://github.com/guilhermesilveira/selo-solid) for SOLID-alike rules, [`selo-eslint-raiz`](https://github.com/guilhermesilveira/selo-eslint-raiz) for shimmed ESLint built-ins, write your own.
+**A small linter, not yet another ESLint plugin.** selo is its own linter. Rules implement a contract that returns per-unit measurements directly — `{value, file, startLine, name, data}` — so the engine never has to reconstruct numeric values from rendered messages. That keeps the ratchet deterministic, the histogram universal, and the seal-message rendering owned by the engine. Rules ship as **packs**, listed below.
+
+---
+
+## Rule packs
+
+selo on its own does nothing — it loads rule packs. The two officially-maintained packs:
+
+| Pack | Repo | npm | Ships |
+|---|---|---|---|
+| **selo-solid** | [github.com/guilhermesilveira/selo-solid](https://github.com/guilhermesilveira/selo-solid) | `selo-solid` | 8 SOLID-alike rules native to selo (`srp/max-file-lines`, `srp/max-function-lines`, `srp/max-params`, `srp/max-depth`, `srp/max-statements-per-function`, `srp/max-cyclomatic-complexity`, `srp/max-class-methods`, `ocp/no-type-discriminating-switch`). Start here. |
+| **selo-eslint-raiz** | [github.com/guilhermesilveira/selo-eslint-raiz](https://github.com/guilhermesilveira/selo-eslint-raiz) | `selo-eslint-raiz` | Three core ESLint rules wrapped (`no-empty`, `no-useless-catch`, `object-curly-newline`-imports), plus a generic `shimEslintRule()` helper for porting any other ESLint rule into the contract. A demo of the shim pattern as much as a useful pack. |
+
+Writing your own pack is straightforward — see [Rule contract](#the-rule-contract) below.
 
 ---
 
