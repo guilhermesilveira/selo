@@ -4,6 +4,8 @@ All notable changes to `@guilhermesilveira/selo` are documented here. The format
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-04-29
+
 ### Changed
 
 - **Verdict, count rules** — count rules now ratchet on `violationsVsGoal` (the violations cap) rather than on the per-unit `value`, which was always 1 and made the ratchet meaningless. `migrateBaseline()` snaps stale baselines (`current < violationsVsGoal`) up to the new format on first run, persisted. Closes [#2](https://github.com/guilhermesilveira/selo/issues/2). ([60f4614](https://github.com/guilhermesilveira/selo/commit/60f4614))
