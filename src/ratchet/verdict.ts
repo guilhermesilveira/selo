@@ -19,13 +19,22 @@ export type Verdict =
 
 export function verdict({ measuredWorst, measuredViolations, goal, step, stored }: VerdictInput): Verdict {
   if (!stored) {
+    // Seed: `current` is clamped at `goal` from below — the contract is the
+    // goal, not the historical low. If the codebase already meets the goal at
+    // seed time, current snaps to goal so future runs are in the arrived branch.
     return {
       kind: 'seeded',
-      next: { current: measuredWorst, worst: measuredWorst, violationsVsGoal: measuredViolations },
+      next: {
+        current: Math.max(goal, measuredWorst),
+        worst: measuredWorst,
+        violationsVsGoal: measuredViolations,
+      },
     };
   }
   if (stored.current <= goal) {
-    if (measuredViolations > 0) return { kind: 'arrivedFailed', offendersThreshold: stored.current };
+    // Arrived: only `goal` is the contract. A regression past goal must
+    // return to goal immediately, no step-tightening — the ratchet is done.
+    if (measuredViolations > 0) return { kind: 'arrivedFailed', offendersThreshold: goal };
     return { kind: 'arrived' };
   }
   if (measuredWorst > stored.worst || measuredViolations > stored.violationsVsGoal) {

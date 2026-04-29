@@ -23,15 +23,19 @@ export async function runBlessCurrent(rest: string[]): Promise<void> {
     const aggregate = runRule({ rule, options, files: ruleFiles, goal });
     const stored = baseline[ruleId];
 
+    // `current` is clamped at `goal` from below — once the codebase meets
+    // the goal, the contract is the goal itself, not the historical low.
+    const newCurrent = Math.max(goal, aggregate.worst);
+
     if (!stored) {
       baseline[ruleId] = {
-        current: aggregate.worst,
+        current: newCurrent,
         worst: aggregate.worst,
         violationsVsGoal: aggregate.violationsVsGoal,
       };
       dirty = true;
       process.stdout.write(
-        `selo: ${ruleId} seeded → current=${aggregate.worst}, worst=${aggregate.worst}, violationsVsGoal=${aggregate.violationsVsGoal}\n`,
+        `selo: ${ruleId} seeded → current=${newCurrent}, worst=${aggregate.worst}, violationsVsGoal=${aggregate.violationsVsGoal}\n`,
       );
       continue;
     }
@@ -44,7 +48,7 @@ export async function runBlessCurrent(rest: string[]): Promise<void> {
     if (
       aggregate.worst === stored.worst &&
       aggregate.violationsVsGoal === stored.violationsVsGoal &&
-      aggregate.worst === stored.current
+      newCurrent === stored.current
     ) {
       process.stdout.write(
         `selo: ${ruleId} unchanged (current=${stored.current}, violations=${stored.violationsVsGoal})\n`,
@@ -52,13 +56,13 @@ export async function runBlessCurrent(rest: string[]): Promise<void> {
       continue;
     }
     baseline[ruleId] = {
-      current: aggregate.worst,
+      current: newCurrent,
       worst: aggregate.worst,
       violationsVsGoal: aggregate.violationsVsGoal,
     };
     dirty = true;
     process.stdout.write(
-      `selo: ${ruleId} blessed — current ${stored.current}→${aggregate.worst}, worst ${stored.worst}→${aggregate.worst}, violations ${stored.violationsVsGoal}→${aggregate.violationsVsGoal}\n`,
+      `selo: ${ruleId} blessed — current ${stored.current}→${newCurrent}, worst ${stored.worst}→${aggregate.worst}, violations ${stored.violationsVsGoal}→${aggregate.violationsVsGoal}\n`,
     );
   }
 

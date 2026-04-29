@@ -56,7 +56,9 @@ export async function runCheck(rest: string[]): Promise<void> {
         regressed = true;
         const offenders = aggregate.offendersOver(v.offendersThreshold);
         process.stderr.write(
-          `\nselo: ${ruleId} arrived at goal=${goal} but ${offenders.length} unit(s) violate current=${v.offendersThreshold}\n`,
+          `\nselo: ${ruleId} REGRESSED past goal=${goal}\n` +
+            `  ${offenders.length} unit(s) violate goal=${goal}. ` +
+            `The ratchet is finished — fix back to goal, no step-tightening.\n`,
         );
         for (const line of formatOffenderLines(rule, offenders)) process.stderr.write(`${line}\n`);
         break;
