@@ -1,7 +1,9 @@
-import { DEFAULT_STEP, ratchetTowardsGoal } from './step.js';
+import type { SeloRuleType } from '../contract/index.js';
 import type { RuleBaseline } from './baseline.js';
+import { DEFAULT_STEP, ratchetTowardsGoal } from './step.js';
 
 export interface VerdictInput {
+  ruleType: SeloRuleType;
   measuredWorst: number;
   measuredViolations: number;
   goal: number;
@@ -17,35 +19,79 @@ export type Verdict =
   | { kind: 'improved'; next: RuleBaseline }
   | { kind: 'regressed'; newCurrent: number; offendersThreshold: number };
 
-export function verdict({ measuredWorst, measuredViolations, goal, step, stored }: VerdictInput): Verdict {
+/**
+ * Compatibility shim: count-rule baselines created before the issue-#2 fix
+ * stored `current` as the per-unit value (always 1 because every count-rule
+ * measurement has `value: 1`) instead of the violation-count cap. The
+ * ratchet had nothing meaningful to operate on. Snap up so subsequent
+ * verdicts work correctly.
+ *
+ * Idempotent — once `current >= violationsVsGoal` the function is a no-op.
+ */
+export function migrateBaseline(
+  stored: RuleBaseline | undefined,
+  ruleType: SeloRuleType,
+): RuleBaseline | undefined {
+  if (!stored || ruleType !== 'count') return stored;
+  if (stored.current >= stored.violationsVsGoal) return stored;
+  return { ...stored, current: stored.violationsVsGoal };
+}
+
+export function verdict(input: VerdictInput): Verdict {
+  const { ruleType, measuredWorst, measuredViolations, goal, step } = input;
+  const stored = migrateBaseline(input.stored, ruleType);
+
   if (!stored) {
-    // Seed: `current` is clamped at `goal` from below — the contract is the
-    // goal, not the historical low. If the codebase already meets the goal at
-    // seed time, current snaps to goal so future runs are in the arrived branch.
+    // Seed. Pick the metric the rule type ratchets on:
+    //   threshold: max measured value (e.g. lines, complexity)
+    //   count:     total violations
+    // Clamp `current` at goal from below — the contract is the goal,
+    // never a historical low.
+    const seedMetric = ruleType === 'count' ? measuredViolations : measuredWorst;
     return {
       kind: 'seeded',
       next: {
-        current: Math.max(goal, measuredWorst),
-        worst: measuredWorst,
+        current: Math.max(goal, seedMetric),
+        worst: seedMetric,
         violationsVsGoal: measuredViolations,
       },
     };
   }
+
   if (stored.current <= goal) {
-    // Arrived: only `goal` is the contract. A regression past goal must
-    // return to goal immediately, no step-tightening — the ratchet is done.
-    if (measuredViolations > 0) return { kind: 'arrivedFailed', offendersThreshold: goal };
+    // Arrived: goal is the contract. Past goal returns to goal immediately,
+    // no step-tightening, no matter how bad the overshoot is.
+    const failed = ruleType === 'count' ? measuredViolations > goal : measuredViolations > 0;
+    if (failed) return { kind: 'arrivedFailed', offendersThreshold: goal };
     return { kind: 'arrived' };
   }
-  if (measuredWorst > stored.worst || measuredViolations > stored.violationsVsGoal) {
+
+  // Ratcheting (current > goal). Regression check is type-specific:
+  //   threshold: worst grew OR violations-past-goal grew
+  //   count:     total violations grew (worst is meaningless — always 1)
+  const regressed =
+    ruleType === 'count'
+      ? measuredViolations > stored.violationsVsGoal
+      : measuredWorst > stored.worst || measuredViolations > stored.violationsVsGoal;
+  if (regressed) {
     const newCurrent = ratchetTowardsGoal(stored.current, goal, step ?? DEFAULT_STEP);
     return { kind: 'regressed', newCurrent, offendersThreshold: newCurrent };
   }
-  if (measuredWorst < stored.worst || measuredViolations < stored.violationsVsGoal) {
+
+  const improved =
+    ruleType === 'count'
+      ? measuredViolations < stored.violationsVsGoal
+      : measuredWorst < stored.worst || measuredViolations < stored.violationsVsGoal;
+  if (improved) {
     return {
       kind: 'improved',
-      next: { current: stored.current, worst: measuredWorst, violationsVsGoal: measuredViolations },
+      next: {
+        current: stored.current,
+        worst: ruleType === 'count' ? measuredViolations : measuredWorst,
+        violationsVsGoal: measuredViolations,
+      },
     };
   }
+
   return { kind: 'flat' };
 }

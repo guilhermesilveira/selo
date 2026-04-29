@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import { runRule } from '../engine/runRule.js';
 import { filesForRule, loadProject, parseAllFiles, projectRoot, resolveOptions } from '../engine/loadProject.js';
 import { readBaseline, writeBaseline, type Baseline } from '../ratchet/baseline.js';
+import { migrateBaseline } from '../ratchet/verdict.js';
 import { parseCommonArgs } from './args.js';
 
 export async function runBlessCurrent(rest: string[]): Promise<void> {
@@ -21,32 +22,50 @@ export async function runBlessCurrent(rest: string[]): Promise<void> {
     const ruleFiles = filesForRule(files, ruleCfg);
     const options = resolveOptions(rule, ruleCfg);
     const aggregate = runRule({ rule, options, files: ruleFiles, goal });
-    const stored = baseline[ruleId];
 
-    // `current` is clamped at `goal` from below — once the codebase meets
-    // the goal, the contract is the goal itself, not the historical low.
-    const newCurrent = Math.max(goal, aggregate.worst);
+    // Pick the metric to bless based on rule type.
+    //   threshold: per-unit value cap (worst measurement)
+    //   count:     violation-count cap (number of violations)
+    const isCount = rule.meta.type === 'count';
+    const blessMetric = isCount ? aggregate.violationsVsGoal : aggregate.worst;
+    const newCurrent = Math.max(goal, blessMetric);
+    const newWorst = blessMetric;
+
+    const original = baseline[ruleId];
+    const stored = migrateBaseline(original, rule.meta.type);
+    if (stored !== original && stored !== undefined) {
+      baseline[ruleId] = stored;
+      dirty = true;
+    }
 
     if (!stored) {
       baseline[ruleId] = {
         current: newCurrent,
-        worst: aggregate.worst,
+        worst: newWorst,
         violationsVsGoal: aggregate.violationsVsGoal,
       };
       dirty = true;
       process.stdout.write(
-        `selo: ${ruleId} seeded → current=${newCurrent}, worst=${aggregate.worst}, violationsVsGoal=${aggregate.violationsVsGoal}\n`,
+        `selo: ${ruleId} seeded → current=${newCurrent}, worst=${newWorst}, violationsVsGoal=${aggregate.violationsVsGoal}\n`,
       );
       continue;
     }
-    if (aggregate.worst > stored.worst || aggregate.violationsVsGoal > stored.violationsVsGoal) {
-      process.stdout.write(
-        `selo: ${ruleId} skipped — would worsen baseline (worst ${stored.worst}→${aggregate.worst}, violations ${stored.violationsVsGoal}→${aggregate.violationsVsGoal})\n`,
-      );
+
+    // "Would worsen" check is also type-specific. For count rules, only the
+    // violation count matters; `worst` is meaningless (always 1 in raw form).
+    const wouldWorsen = isCount
+      ? aggregate.violationsVsGoal > stored.violationsVsGoal
+      : aggregate.worst > stored.worst || aggregate.violationsVsGoal > stored.violationsVsGoal;
+    if (wouldWorsen) {
+      const fromTo = isCount
+        ? `violations ${stored.violationsVsGoal}→${aggregate.violationsVsGoal}`
+        : `worst ${stored.worst}→${aggregate.worst}, violations ${stored.violationsVsGoal}→${aggregate.violationsVsGoal}`;
+      process.stdout.write(`selo: ${ruleId} skipped — would worsen baseline (${fromTo})\n`);
       continue;
     }
+
     if (
-      aggregate.worst === stored.worst &&
+      newWorst === stored.worst &&
       aggregate.violationsVsGoal === stored.violationsVsGoal &&
       newCurrent === stored.current
     ) {
@@ -57,12 +76,12 @@ export async function runBlessCurrent(rest: string[]): Promise<void> {
     }
     baseline[ruleId] = {
       current: newCurrent,
-      worst: aggregate.worst,
+      worst: newWorst,
       violationsVsGoal: aggregate.violationsVsGoal,
     };
     dirty = true;
     process.stdout.write(
-      `selo: ${ruleId} blessed — current ${stored.current}→${newCurrent}, worst ${stored.worst}→${aggregate.worst}, violations ${stored.violationsVsGoal}→${aggregate.violationsVsGoal}\n`,
+      `selo: ${ruleId} blessed — current ${stored.current}→${newCurrent}, worst ${stored.worst}→${newWorst}, violations ${stored.violationsVsGoal}→${aggregate.violationsVsGoal}\n`,
     );
   }
 
