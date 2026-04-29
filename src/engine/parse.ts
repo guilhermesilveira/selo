@@ -19,9 +19,32 @@ export async function parseFile(absolutePath: string, projectRoot: string): Prom
   } catch {
     return null;
   }
+  setParents(ast, null);
   return {
     path: path.relative(projectRoot, absolutePath).replaceAll(path.sep, '/'),
     source,
     ast,
   };
+}
+
+/**
+ * @typescript-eslint/parser does not attach `parent` references by default.
+ * Rule authors very often need them (to find a function's enclosing class,
+ * etc.), so we walk the AST once after parsing and set them.
+ *
+ * The walker skips `parent`, `loc`, and `range` keys to avoid cycles and
+ * irrelevant traversal.
+ */
+function setParents(node: unknown, parent: unknown): void {
+  if (Array.isArray(node)) {
+    for (const c of node) setParents(c, parent);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  (node as { parent?: unknown }).parent = parent;
+  const obj = node as Record<string, unknown>;
+  for (const k of Object.keys(obj)) {
+    if (k === 'parent' || k === 'loc' || k === 'range') continue;
+    setParents(obj[k], node);
+  }
 }
