@@ -1,6 +1,6 @@
 {
   "name": "@guilhermesilveira/selo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "selo de qualidade guilherme raiz — a small linter built around a goal-driven, deterministic ratchet. Rules return per-unit measurements; the engine handles ratcheting toward a goal you set.",
   "type": "module",
   "main": "./dist/index.js",
