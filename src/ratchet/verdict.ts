@@ -83,10 +83,11 @@ export function verdict(input: VerdictInput): Verdict {
       ? measuredViolations < stored.violationsVsGoal
       : measuredWorst < stored.worst || measuredViolations < stored.violationsVsGoal;
   if (improved) {
+    const improvedMetric = ruleType === 'count' ? measuredViolations : measuredWorst;
     return {
       kind: 'improved',
       next: {
-        current: stored.current,
+        current: Math.min(stored.current, Math.max(goal, improvedMetric)),
         worst: ruleType === 'count' ? measuredViolations : measuredWorst,
         violationsVsGoal: measuredViolations,
       },

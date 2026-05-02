@@ -74,7 +74,21 @@ describe('verdict — threshold rules', () => {
     });
     expect(v.kind).toBe('improved');
     if (v.kind === 'improved') {
-      expect(v.next).toEqual({ current: 904, worst: 850, violationsVsGoal: 290 });
+      expect(v.next).toEqual({ current: 850, worst: 850, violationsVsGoal: 290 });
+    }
+  });
+
+  it('never loosens current when blessing a threshold improvement', () => {
+    const v = verdict({
+      ruleType: 'threshold',
+      measuredWorst: 850,
+      measuredViolations: 290,
+      goal: 80,
+      stored: { current: 800, worst: 904, violationsVsGoal: 297 },
+    });
+    expect(v.kind).toBe('improved');
+    if (v.kind === 'improved') {
+      expect(v.next).toEqual({ current: 800, worst: 850, violationsVsGoal: 290 });
     }
   });
 
@@ -182,7 +196,7 @@ describe('verdict — count rules', () => {
     expect(v.kind).toBe('flat');
   });
 
-  it('improved when violations drop, current stays put', () => {
+  it('improved when violations drop, current tightens', () => {
     const v = verdict({
       ruleType: 'count',
       measuredWorst: 1,
@@ -192,7 +206,7 @@ describe('verdict — count rules', () => {
     });
     expect(v.kind).toBe('improved');
     if (v.kind === 'improved') {
-      expect(v.next).toEqual({ current: 100, worst: 90, violationsVsGoal: 90 });
+      expect(v.next).toEqual({ current: 90, worst: 90, violationsVsGoal: 90 });
     }
   });
 

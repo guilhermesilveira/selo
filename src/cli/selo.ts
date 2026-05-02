@@ -7,7 +7,8 @@ import { runHistogram } from './histogram.js';
 function printUsage(): void {
   process.stdout.write(
     'selo — usage:\n' +
-      '  selo check [--cwd <dir>]                 verify the codebase against goals; pure CI/state-comparison\n' +
+      '  selo check [--cwd <dir>] [--dont-bless-baseline]\n' +
+      '                                          verify the codebase and bless safe baseline improvements by default\n' +
       '  selo bless-current [--cwd <dir>]         write today\'s state to baseline (skip rules where it would worsen)\n' +
       '  selo get-maxes [--cwd <dir>]             JSON of {ruleId: current} for syncing external lint configs\n' +
       '  selo histogram <rule-id> [--cwd <dir>]   distribution of a threshold rule\n',

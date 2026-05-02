@@ -4,6 +4,14 @@ All notable changes to `@guilhermesilveira/selo` are documented here. The format
 
 ## [Unreleased]
 
+### Changed
+
+- **`selo check`, baseline blessing** — improvements now tighten `current` by default, not only `worst` / `violationsVsGoal`, so `selo get-maxes` sees the lower cap immediately. Any baseline write exits non-zero so the generated `selo.baseline.json` diff must be reviewed and committed.
+
+### Added
+
+- **`selo check --dont-bless-baseline`** — read-only check mode for CI or diagnostics that should report seeds/improvements/regressions without writing `selo.baseline.json`.
+
 ## [0.1.0] — 2026-04-29
 
 ### Changed

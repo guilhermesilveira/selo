@@ -6,8 +6,21 @@ import { readBaseline, writeBaseline, type Baseline } from '../ratchet/baseline.
 import { migrateBaseline, verdict } from '../ratchet/verdict.js';
 import { parseCommonArgs } from './args.js';
 
-export async function runCheck(rest: string[]): Promise<void> {
+export interface CheckArgs {
+  cwd: string | undefined;
+  blessBaseline: boolean;
+}
+
+export function parseCheckArgs(rest: string[]): CheckArgs {
   const args = parseCommonArgs(rest);
+  return {
+    cwd: args.cwd,
+    blessBaseline: !args.positional.includes('--dont-bless-baseline'),
+  };
+}
+
+export async function runCheck(rest: string[]): Promise<void> {
+  const args = parseCheckArgs(rest);
   const cwd = projectRoot(args.cwd);
   const ctx = await loadProject(cwd);
   const baselinePath = path.join(cwd, 'selo.baseline.json');
@@ -16,6 +29,7 @@ export async function runCheck(rest: string[]): Promise<void> {
   const files = await parseAllFiles(ctx);
   let regressed = false;
   let dirty = false;
+  let baselineChanged = false;
 
   for (const [ruleId, ruleCfg] of Object.entries(ctx.config.rules)) {
     const rule = ctx.ruleMap.get(ruleId);
@@ -36,9 +50,13 @@ export async function runCheck(rest: string[]): Promise<void> {
     // don't redo the migration on every check.
     const original = baseline[ruleId];
     const migrated = migrateBaseline(original, rule.meta.type);
+    const stored = migrated ?? original;
     if (migrated !== original && migrated !== undefined) {
-      baseline[ruleId] = migrated;
-      dirty = true;
+      if (args.blessBaseline) {
+        baseline[ruleId] = migrated;
+        dirty = true;
+        baselineChanged = true;
+      }
     }
 
     const v = verdict({
@@ -47,18 +65,22 @@ export async function runCheck(rest: string[]): Promise<void> {
       measuredViolations: aggregate.violationsVsGoal,
       goal,
       step: ruleCfg.step,
-      stored: baseline[ruleId],
+      stored,
     });
 
     switch (v.kind) {
       case 'seeded': {
-        baseline[ruleId] = v.next;
-        dirty = true;
+        if (args.blessBaseline) {
+          baseline[ruleId] = v.next;
+          dirty = true;
+          baselineChanged = true;
+        }
         const seedDesc =
           rule.meta.type === 'count'
             ? `cap=${v.next.current}, violations=${v.next.violationsVsGoal}`
             : `current=${v.next.current}, worst=${v.next.worst}, violationsVsGoal=${v.next.violationsVsGoal}`;
-        process.stdout.write(`selo: seeded ${ruleId} — ${seedDesc}, goal=${goal}\n`);
+        const verb = args.blessBaseline ? 'seeded' : 'would seed';
+        process.stdout.write(`selo: ${verb} ${ruleId} — ${seedDesc}, goal=${goal}\n`);
         break;
       }
       case 'arrived': {
@@ -90,29 +112,32 @@ export async function runCheck(rest: string[]): Promise<void> {
       case 'flat': {
         const flatDesc =
           rule.meta.type === 'count'
-            ? `violations ${aggregate.violationsVsGoal}, cap ${baseline[ruleId]?.current}, goal ${goal}`
-            : `worst ${aggregate.worst}, violations ${aggregate.violationsVsGoal}, current ${baseline[ruleId]?.current}, goal ${goal}`;
+            ? `violations ${aggregate.violationsVsGoal}, cap ${stored?.current}, goal ${goal}`
+            : `worst ${aggregate.worst}, violations ${aggregate.violationsVsGoal}, current ${stored?.current}, goal ${goal}`;
         process.stdout.write(`selo: ${ruleId} flat — ${flatDesc}\n`);
         break;
       }
       case 'improved': {
-        const prev = baseline[ruleId];
-        baseline[ruleId] = v.next;
-        dirty = true;
+        const prev = stored;
+        if (args.blessBaseline) {
+          baseline[ruleId] = v.next;
+          dirty = true;
+          baselineChanged = true;
+        }
+        const suffix = args.blessBaseline ? '' : ' (baseline unchanged)';
         if (rule.meta.type === 'count') {
           process.stdout.write(
-            `selo: ${ruleId} improved — violations ${prev?.violationsVsGoal}→${v.next.violationsVsGoal} (cap stays ${v.next.current})\n`,
+            `selo: ${ruleId} improved — violations ${prev?.violationsVsGoal}→${v.next.violationsVsGoal}, cap ${prev?.current}→${v.next.current}${suffix}\n`,
           );
         } else {
           process.stdout.write(
-            `selo: ${ruleId} improved — worst ${prev?.worst}→${v.next.worst}, violationsVsGoal ${prev?.violationsVsGoal}→${v.next.violationsVsGoal}\n`,
+            `selo: ${ruleId} improved — worst ${prev?.worst}→${v.next.worst}, violationsVsGoal ${prev?.violationsVsGoal}→${v.next.violationsVsGoal}, current ${prev?.current}→${v.next.current}${suffix}\n`,
           );
         }
         break;
       }
       case 'regressed': {
         regressed = true;
-        const stored = baseline[ruleId];
         if (rule.meta.type === 'count') {
           process.stderr.write(
             `\nselo: REGRESSION on ${ruleId} (goal ${goal})\n` +
@@ -146,5 +171,10 @@ export async function runCheck(rest: string[]): Promise<void> {
   }
 
   if (dirty) await writeBaseline(baselinePath, baseline);
-  if (regressed) process.exit(1);
+  if (baselineChanged) {
+    process.stderr.write(
+      '\nselo: baseline updated. Review and commit selo.baseline.json, then rerun `selo check`.\n',
+    );
+  }
+  if (regressed || baselineChanged) process.exit(1);
 }

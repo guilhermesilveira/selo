@@ -8,7 +8,7 @@ This README is **agent-first**. Read top to bottom.
 
 ## Human explanation
 
-**Continuous improvement, never regression.** You set a quality goal you don't yet meet — say, "no function over 80 lines" — and start moving toward it without breaking the build today. selo measures your codebase as it is and seeds a baseline. From then on each commit either holds the line, improves it (the baseline auto-tightens to lock the gain in), or makes things worse — and only the third case fails. When you do force a regression, the rule responds by tightening the active threshold one step closer to the goal. The migration is monotonic: the codebase can never get further from the goal than its committed baseline, and the build verdict is a pure function of code + baseline files — no clock, no git history, no surprise reruns.
+**Continuous improvement, never regression.** You set a quality goal you don't yet meet — say, "no function over 80 lines" — and start moving toward it without breaking the build today. selo measures your codebase as it is and seeds a baseline. From then on each commit either holds the line, improves it (the baseline auto-tightens to lock the gain in), or makes things worse. Regressions fail. Baseline writes also exit non-zero so the generated `selo.baseline.json` diff is noticed, reviewed, and committed. When you do force a regression, the rule responds by tightening the active threshold one step closer to the goal. The migration is monotonic: the codebase can never get further from the goal than its committed baseline, and the build verdict is a pure function of code + baseline files — no clock, no git history, no surprise reruns.
 
 **A small linter, not yet another ESLint plugin.** selo is its own linter. Rules implement a contract that returns per-unit measurements directly — `{value, file, startLine, name, data}` — so the engine never has to reconstruct numeric values from rendered messages. That keeps the ratchet deterministic, the histogram universal, and the seal-message rendering owned by the engine. Rules ship as **packs**, listed below.
 
@@ -62,11 +62,11 @@ export default {
 npx selo check
 ```
 
-First run writes `selo.baseline.json` with today's worst per rule and exits 0 (`seeded ...`). Re-running `selo check` should print `flat` for every rule and exit 0.
+First run writes `selo.baseline.json` with today's worst per rule and exits non-zero to make the new baseline visible (`seeded ...`). Commit that file. Re-running `selo check` should print `flat` for every rule and exit 0.
 
 ### 4. Wire pre-commit + CI
 
-Add `npx selo check` to whatever pre-commit hook the project already has, and to CI. That's the whole gate.
+Add `npx selo check` to whatever pre-commit hook the project already has. For read-only CI, use `npx selo check --dont-bless-baseline`; for CI that is allowed to fail when the baseline should be committed, use plain `npx selo check`.
 
 ### 5. (If OCP fires on legacy code) exempt those files
 
@@ -129,15 +129,16 @@ The `seal` string is a message template with `{{key}}` placeholders filled in fr
 
 All commands accept `--cwd <dir>`; default is `process.cwd()`.
 
-### `selo check`
+### `selo check [--dont-bless-baseline]`
 
 The verifier. Run in pre-commit and CI.
 
 - Reads `selo.config.{mjs,js,ts,json}` and `selo.baseline.json`.
 - For each ruleable rule (one with a `goal`): measure, compare, apply the verdict.
 - Seeds on first run for any rule missing from baseline.
-- Auto-updates baseline downward on improvement.
-- **Exits 1 only on regression.** Seeding, improvement, and flat states all exit 0.
+- Auto-updates baseline downward on improvement, including `current`, so `selo get-maxes` sees the tighter cap.
+- **Exits 1 on regression or when it writes the baseline.** If the only issue is a baseline write, review and commit `selo.baseline.json`, then rerun.
+- `--dont-bless-baseline` makes the command read-only: it reports seeds/improvements/regressions but does not write `selo.baseline.json`.
 
 ### `selo bless-current`
 
@@ -197,7 +198,7 @@ interface RuleConfig {
 ```
 measure → (nowWorst, nowViolations)
 
-if no baseline entry → SEED: write {current: nowWorst, worst, violationsVsGoal}; exit 0
+if no baseline entry → SEED: write {current: nowWorst, worst, violationsVsGoal}; exit 1 so the file is committed
 
 if stored.current <= goal → "arrived"
     fail iff any unit > current
@@ -207,7 +208,7 @@ else (still ratcheting):
         newCurrent = current - max(1, ceil(step * (current - goal)))   // clamped to goal
         FAIL with: "tighten current to newCurrent, fix N units, then run `selo check`"
     elif nowWorst < stored.worst OR nowViolations < stored.violationsVsGoal
-        improved → update stored.worst and stored.violationsVsGoal downward; exit 0
+        improved → update current/worst/violationsVsGoal downward; exit 1 so the file is committed
     else
         flat → exit 0
 ```
@@ -281,6 +282,6 @@ This ordering means a pack on npm always works against at least one published en
 
 The verdict of `selo check` is a pure function of (a) the source code currently on disk and (b) the committed `selo.baseline.json` and `selo.config.*`. No clock, no git history, no environment variables, no random seeds.
 
-Every counter / threshold / accepted-state advance lives inside the committed JSON files and is advanced only by an explicit local action (`selo bless-current` or `selo check`-on-improvement). CI never writes to these files; CI only reads them and produces a verdict.
+Every counter / threshold / accepted-state advance lives inside the committed JSON files and is advanced only by an explicit action (`selo bless-current` or default `selo check` blessing). Use `selo check --dont-bless-baseline` when a CI job must be strictly read-only.
 
 If you find yourself wanting `Date.now()`, a SHA, a merge-base diff, or anything that varies between runs at the same code state — stop. The mechanism you want should advance the JSON state instead.
